@@ -1,0 +1,22 @@
+services:
+  py_db:
+    image: postgres:latest
+    container_name: py_db
+    restart: unless-stopped
+    ports:
+      - "5445:5432"
+    environment:
+      POSTGRES_DB: finance_db
+      POSTGRES_USER: finance
+      POSTGRES_PASSWORD: finance123
+    volumes:
+      - py_pgdata:/var/lib/postgresql/data
+    networks:
+      py_network:
+
+
+volumes:
+  py_pgdata:
+
+networks:
+  py_network:
