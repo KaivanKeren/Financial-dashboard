@@ -7,25 +7,25 @@ import pandas as pd
 class Dashboard:
 
     @staticmethod
-    def render_metrics(metrics):
-        """Render metrics cards"""
+    def render_metrics(metrics: 'TransactionSummary'):
+        """Render metrics cards menggunakan TransactionSummary object"""
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
             st.metric(
                 label="Total Pemasukan",
-                value=f"Rp {metrics['total_debit']:,.0f}",
+                value=f"Rp {float(metrics.total_debit):,.0f}",
                 delta="Income"
             )
         with col2:
             st.metric(
                 label="Total Pengeluaran",
-                value=f"Rp {metrics['total_kredit']:,.0f}",
+                value=f"Rp {float(metrics.total_kredit):,.0f}",
                 delta="Expense",
                 delta_color="inverse"
             )
         with col3:
-            saldo = metrics['saldo_akhir']
+            saldo = float(metrics.saldo_akhir)
             st.metric(
                 label="Saldo Akhir",
                 value=f"Rp {saldo:,.0f}",
@@ -35,7 +35,7 @@ class Dashboard:
         with col4:
             st.metric(
                 label="Total Transaksi",
-                value=f"{metrics['total_transaksi']}",
+                value=f"{metrics.total_transaksi}",
                 delta="Records"
             )
 
@@ -65,7 +65,7 @@ class Dashboard:
         st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
 
     @staticmethod
-    def render_visualizations(df, metrics):
+    def render_visualizations(df: pd.DataFrame, metrics: 'TransactionSummary'):
         """Render visualisasi grafik"""
         st.subheader("Visualisasi Keuangan")
 
@@ -91,7 +91,7 @@ class Dashboard:
             # Bar chart
             summary = pd.DataFrame({
                 "Kategori": ["Pemasukan", "Pengeluaran"],
-                "Jumlah": [metrics['total_debit'], metrics['total_kredit']]
+                "Jumlah": [float(metrics.total_debit), float(metrics.total_kredit)]
             })
 
             fig_bar = px.bar(
@@ -124,7 +124,7 @@ class Dashboard:
         st.plotly_chart(fig_line, use_container_width=True)
 
     @staticmethod
-    def render_analysis(df, transaction_service, metrics):
+    def render_analysis(df: pd.DataFrame, transaction_service, metrics: 'TransactionSummary'):
         """Render analisis mendalam"""
         st.subheader("Analisis Mendalam")
 
@@ -144,23 +144,15 @@ class Dashboard:
         with col2:
             st.markdown("#### Key Insights")
 
-            # Rata-rata
-            debit_trans = df[df["Debit"] > 0]
-            kredit_trans = df[df["Kredit"] > 0]
-
-            avg_debit = metrics['total_debit'] / len(debit_trans) if len(debit_trans) > 0 else 0
-            avg_kredit = metrics['total_kredit'] / len(kredit_trans) if len(kredit_trans) > 0 else 0
-
-            st.metric("Rata-rata Pemasukan", f"Rp {avg_debit:,.0f}")
-            st.metric("Rata-rata Pengeluaran", f"Rp {avg_kredit:,.0f}")
+            st.metric("Rata-rata Pemasukan", f"Rp {float(metrics.avg_debit):,.0f}")
+            st.metric("Rata-rata Pengeluaran", f"Rp {float(metrics.avg_kredit):,.0f}")
 
             # Status
             st.markdown("<br>", unsafe_allow_html=True)
-            saldo = metrics['saldo_akhir']
-            if saldo > 0:
-                st.success(f"Status: SURPLUS Rp {saldo:,.0f}")
-            elif saldo < 0:
-                st.error(f"Status: DEFISIT Rp {abs(saldo):,.0f}")
+            if metrics.is_surplus():
+                st.success(f"Status: SURPLUS Rp {float(metrics.saldo_akhir):,.0f}")
+            elif metrics.is_deficit():
+                st.error(f"Status: DEFISIT Rp {abs(float(metrics.saldo_akhir)):,.0f}")
             else:
                 st.info("Status: BREAK EVEN")
 
