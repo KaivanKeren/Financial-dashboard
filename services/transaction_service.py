@@ -1,9 +1,12 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Tuple, Optional
+from typing import Tuple, List, Optional
 import pandas as pd
+
 from database.repository import TransactionRepository
-from models.transaction import Transaction, TransactionSummary, CategorySummary
+from models.entities.transaction import TransactionEntity
+from models.dto.transaction_dto import TransactionDTO, CreateTransactionDTO
+from models.dto.summary_dto import TransactionSummaryDTO, CategorySummaryDTO
 
 
 class TransactionService:
@@ -11,64 +14,79 @@ class TransactionService:
     def __init__(self):
         self.repository = TransactionRepository()
 
-    def add_transaction(self, tanggal, deskripsi: str, kategori: str,
-                        tipe: str, jumlah: float) -> Tuple[bool, str]:
+    def add_transaction(self, dto: CreateTransactionDTO) -> Tuple[bool, str]:
         """
-        Tambah transaksi baru dengan validasi
+        Tambah transaksi baru menggunakan CreateTransactionDTO
 
         Args:
-            tanggal: datetime object atau date object
-            deskripsi: string
-            kategori: string
-            tipe: 'Pemasukan' atau 'Pengeluaran'
-            jumlah: float
+            dto: CreateTransactionDTO with validated data
 
         Returns:
             Tuple[bool, str]: (success, message)
         """
         try:
-            # Validasi input
-            if not deskripsi or jumlah <= 0:
-                return False, "Deskripsi dan jumlah harus diisi dengan benar"
+            # Hitung saldo
+            saldo_awal = Decimal(str(self.repository.get_last_balance()))
+            saldo_akhir = saldo_awal + dto.get_debit() - dto.get_kredit()
 
+            # Convert DTO ke Entity
+            entity = dto.to_entity(saldo=saldo_akhir)
+
+            # Simpan ke database
+            success = self.repository.insert(entity)
+
+            if success:
+                return True, "Transaksi berhasil ditambahkan"
+            return False, "Gagal menyimpan transaksi"
+
+        except ValueError as e:
+            return False, f"Validasi error: {str(e)}"
+        except Exception as e:
+            return False, f"Error: {str(e)}"
+
+    def add_transaction_legacy(self, tanggal, deskripsi: str, kategori: str,
+                               tipe: str, jumlah: float) -> Tuple[bool, str]:
+        """
+        Legacy method - untuk backward compatibility dengan UI lama
+        Internally convert ke CreateTransactionDTO
+        """
+        try:
             # Konversi date ke datetime jika perlu
             if isinstance(tanggal, datetime):
                 tanggal_datetime = tanggal
             else:
                 tanggal_datetime = datetime.combine(tanggal, datetime.min.time())
 
-            # Tentukan debit/kredit
-            debit = Decimal(str(jumlah)) if tipe == "Pemasukan" else Decimal('0')
-            kredit = Decimal(str(jumlah)) if tipe == "Pengeluaran" else Decimal('0')
-
-            # Hitung saldo
-            saldo_awal = Decimal(str(self.repository.get_last_balance()))
-            saldo_akhir = saldo_awal + debit - kredit
-
-            # Buat Transaction object
-            transaction = Transaction(
+            # Buat CreateTransactionDTO
+            dto = CreateTransactionDTO(
                 tanggal=tanggal_datetime,
                 deskripsi=deskripsi,
                 kategori=kategori,
-                debit=debit,
-                kredit=kredit,
-                saldo=saldo_akhir
+                tipe=tipe,
+                jumlah=Decimal(str(jumlah))
             )
 
-            # Simpan ke database
-            success = self.repository.insert_transaction(transaction)
-
-            if success:
-                return True, "Transaksi berhasil ditambahkan"
-            return False, "Gagal menyimpan transaksi"
+            return self.add_transaction(dto)
 
         except Exception as e:
             return False, f"Error: {str(e)}"
 
+    def get_all_transactions_dto(self) -> List[TransactionDTO]:
+        """Ambil semua transaksi sebagai list of DTOs"""
+        entities = self.repository.get_all_entities()
+        return [TransactionDTO.from_entity(entity) for entity in entities]
+
+    def get_transaction_by_id(self, transaction_id: int) -> Optional[TransactionDTO]:
+        """Ambil transaksi by ID sebagai DTO"""
+        entity = self.repository.get_by_id(transaction_id)
+        if entity:
+            return TransactionDTO.from_entity(entity)
+        return None
+
     def delete_transaction(self, index: int) -> bool:
         """Hapus transaksi dan recalculate"""
         try:
-            success = self.repository.delete_transaction_by_index(index)
+            success = self.repository.delete_by_index(index)
             if success:
                 self.repository.recalculate_balances()
                 return True
@@ -78,17 +96,13 @@ class TransactionService:
             return False
 
     def get_all_transactions(self) -> pd.DataFrame:
-        """Ambil semua transaksi sebagai DataFrame"""
+        """Ambil semua transaksi sebagai DataFrame (backward compatibility)"""
         return self.repository.get_all_transactions()
 
-    def get_all_transactions_as_objects(self) -> list:
-        """Ambil semua transaksi sebagai list of Transaction objects"""
-        return self.repository.get_all_transactions_as_objects()
-
-    def get_summary_metrics(self, df: pd.DataFrame) -> TransactionSummary:
-        """Hitung metrics summary dan return sebagai TransactionSummary object"""
+    def get_summary_metrics(self, df: pd.DataFrame) -> TransactionSummaryDTO:
+        """Hitung metrics summary dan return sebagai DTO"""
         if df.empty:
-            return TransactionSummary()
+            return TransactionSummaryDTO()
 
         total_debit = Decimal(str(df["Debit"].sum()))
         total_kredit = Decimal(str(df["Kredit"].sum()))
@@ -102,7 +116,7 @@ class TransactionService:
         avg_debit = total_debit / len(debit_trans) if len(debit_trans) > 0 else Decimal('0')
         avg_kredit = total_kredit / len(kredit_trans) if len(kredit_trans) > 0 else Decimal('0')
 
-        return TransactionSummary(
+        return TransactionSummaryDTO(
             total_debit=total_debit,
             total_kredit=total_kredit,
             saldo_akhir=saldo_akhir,

@@ -1,15 +1,14 @@
 import pandas as pd
 import streamlit as st
-from datetime import datetime
 from typing import List, Optional
 from database.connection import DatabaseConnection
-from models.transaction import Transaction
+from models.entities.transaction import TransactionEntity
 
 
 class TransactionRepository:
 
     @staticmethod
-    def init_database():
+    def init_database() -> bool:
         """Inisialisasi tabel database"""
         with DatabaseConnection.get_connection() as conn:
             if conn:
@@ -63,7 +62,7 @@ class TransactionRepository:
 
     @staticmethod
     def get_all_transactions() -> pd.DataFrame:
-        """Ambil semua transaksi dari database"""
+        """Ambil semua transaksi sebagai DataFrame (untuk backward compatibility)"""
         with DatabaseConnection.get_connection() as conn:
             if conn:
                 try:
@@ -81,8 +80,8 @@ class TransactionRepository:
         return pd.DataFrame(columns=["Tanggal", "Deskripsi", "Kategori", "Debit", "Kredit", "Saldo"])
 
     @staticmethod
-    def get_all_transactions_as_objects() -> List[Transaction]:
-        """Ambil semua transaksi sebagai list of Transaction objects"""
+    def get_all_entities() -> List[TransactionEntity]:
+        """Ambil semua transaksi sebagai list of Entities"""
         with DatabaseConnection.get_connection() as conn:
             if conn:
                 try:
@@ -101,12 +100,39 @@ class TransactionRepository:
                                    """)
                     results = cursor.fetchall()
                     cursor.close()
-
-                    return [Transaction.from_tuple(row) for row in results]
+                    return [TransactionEntity.from_db_row(row) for row in results]
                 except Exception as e:
                     st.error(f"Error loading transactions: {str(e)}")
                     return []
         return []
+
+    @staticmethod
+    def get_by_id(transaction_id: int) -> Optional[TransactionEntity]:
+        """Ambil transaksi by ID"""
+        with DatabaseConnection.get_connection() as conn:
+            if conn:
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                                   SELECT id,
+                                          tanggal,
+                                          deskripsi,
+                                          kategori,
+                                          debit,
+                                          kredit,
+                                          saldo,
+                                          created_at
+                                   FROM transactions
+                                   WHERE id = %s
+                                   """, (transaction_id,))
+                    result = cursor.fetchone()
+                    cursor.close()
+
+                    if result:
+                        return TransactionEntity.from_db_row(result)
+                except Exception as e:
+                    st.error(f"Error getting transaction: {str(e)}")
+        return None
 
     @staticmethod
     def get_last_balance() -> float:
@@ -125,51 +151,33 @@ class TransactionRepository:
         return 0.0
 
     @staticmethod
-    def insert_transaction(transaction: Transaction) -> bool:
-        """Simpan transaksi baru menggunakan Transaction object"""
+    def insert(entity: TransactionEntity) -> bool:
+        """Simpan transaksi baru menggunakan Entity"""
         with DatabaseConnection.get_connection() as conn:
             if conn:
                 try:
                     cursor = conn.cursor()
-
-                    # Debug: Print values sebelum insert
-                    print(f"Inserting transaction:")
-                    print(f"  tanggal: {transaction.tanggal}")
-                    print(f"  deskripsi: {transaction.deskripsi}")
-                    print(f"  kategori: {transaction.kategori}")
-                    print(f"  debit: {transaction.debit}")
-                    print(f"  kredit: {transaction.kredit}")
-                    print(f"  saldo: {transaction.saldo}")
-
-                    # Prepare values
-                    values = (
-                        transaction.tanggal,
-                        transaction.deskripsi,
-                        transaction.kategori,
-                        float(transaction.debit),
-                        float(transaction.kredit),
-                        float(transaction.saldo)
-                    )
-
-                    # Execute query
                     cursor.execute("""
                                    INSERT INTO transactions (tanggal, deskripsi, kategori, debit, kredit, saldo)
                                    VALUES (%s, %s, %s, %s, %s, %s)
-                                   """, values)
-
+                                   """, (
+                                       entity.tanggal,
+                                       entity.deskripsi,
+                                       entity.kategori,
+                                       float(entity.debit),
+                                       float(entity.kredit),
+                                       float(entity.saldo)
+                                   ))
                     conn.commit()
                     cursor.close()
                     return True
                 except Exception as e:
-                    import traceback
-                    error_detail = traceback.format_exc()
                     st.error(f"Error saving transaction: {str(e)}")
-                    print(f"Full error:\n{error_detail}")
                     return False
         return False
 
     @staticmethod
-    def delete_transaction_by_index(index: int) -> bool:
+    def delete_by_index(index: int) -> bool:
         """Hapus transaksi berdasarkan index"""
         with DatabaseConnection.get_connection() as conn:
             if conn:
