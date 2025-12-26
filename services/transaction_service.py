@@ -154,8 +154,46 @@ class TransactionService:
         return monthly
 
     def export_to_csv(self, df: pd.DataFrame) -> bytes:
-        """Export ke CSV"""
-        return df.to_csv(index=False).encode('utf-8')
+    """
+    Export CSV dengan format rapi & Excel-friendly
+    """
+    if df.empty:
+        return b""
+
+    export_df = df.copy()
+
+    # 1. Format tanggal
+    if "Tanggal" in export_df.columns:
+        export_df["Tanggal"] = pd.to_datetime(
+            export_df["Tanggal"], errors="coerce"
+        ).dt.strftime("%d-%m-%Y")
+
+    # 2. Pastikan kolom numerik rapi (tanpa scientific notation)
+    numeric_cols = ["Debit", "Kredit", "Saldo"]
+    for col in numeric_cols:
+        if col in export_df.columns:
+            export_df[col] = (
+                export_df[col]
+                .apply(lambda x: f"{Decimal(str(x)):.2f}")
+            )
+
+    # 3. Rename kolom agar user-friendly (opsional tapi direkomendasikan)
+    rename_map = {
+        "Tanggal": "Tanggal",
+        "Deskripsi": "Deskripsi",
+        "Kategori": "Kategori",
+        "Debit": "Debit (Rp)",
+        "Kredit": "Kredit (Rp)",
+        "Saldo": "Saldo (Rp)"
+    }
+    export_df.rename(columns=rename_map, inplace=True)
+
+    # 4. Export CSV
+    return export_df.to_csv(
+        index=False,
+        sep=";",               # Aman untuk Excel regional Indonesia
+        encoding="utf-8-sig"   # Fix karakter aneh di Excel
+    ).encode("utf-8-sig")
 
     def clear_all_data(self) -> bool:
         """Hapus semua data"""
